@@ -1,67 +1,68 @@
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
-from typing import List
-from sqlalchemy import create_engine, Column, Integer, String, Float
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import Column, Integer, String, Float, create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base, Session
 import requests
-from math import radians, sin, cos, sqrt, atan2
+import math
 
 # -----------------------------
-# DATABASE CONFIG
+# DATABASE (SQLite)
 # -----------------------------
-DATABASE_URL = "postgresql://postgres:breakdown2026@localhost:5432/breakdown_api"
+DATABASE_URL = "sqlite:///./breakdown.db"
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    DATABASE_URL, connect_args={"check_same_thread": False}
+)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# ⭐ CREATE TABLES ON STARTUP ⭐
-Base.metadata.create_all(bind=engine)
 
 # -----------------------------
-# DATABASE MODEL
+# MODELS
 # -----------------------------
 class Garage(Base):
     __tablename__ = "garages"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    address = Column(String, nullable=False)
-    phone = Column(String)
-    email = Column(String)
+    name = Column(String, index=True)
+    postcode = Column(String, index=True)
     latitude = Column(Float)
     longitude = Column(Float)
 
+
+Base.metadata.create_all(bind=engine)
+
+
 # -----------------------------
-# PYDANTIC MODELS
+# SCHEMAS
 # -----------------------------
 class GarageCreate(BaseModel):
     name: str
-    address: str
-    phone: str | None = None
-    email: str | None = None
-    latitude: float | None = None
-    longitude: float | None = None
+    postcode: str
+    latitude: float
+    longitude: float
 
-class GarageOut(GarageCreate):
+
+class GarageOut(BaseModel):
     id: int
+    name: str
+    postcode: str
+    latitude: float
+    longitude: float
+
     class Config:
         orm_mode = True
 
-class BulkGarage(BaseModel):
-    name: str
-    address: str
-    postcode: str
-    phone: str | None = None
-    notes: str | None = None
 
 # -----------------------------
 # FASTAPI APP
 # -----------------------------
 app = FastAPI()
 
+
 # -----------------------------
-# DB SESSION
+# DB DEPENDENCY
 # -----------------------------
 def get_db():
     db = SessionLocal()
@@ -70,88 +71,85 @@ def get_db():
     finally:
         db.close()
 
+
 # -----------------------------
-# GEOCODING FUNCTION
+# HELPERS
 # -----------------------------
 def geocode_postcode(postcode: str):
-    url = f"https://nominatim.openstreetmap.org/search?format=json&q={postcode}"
-    response = requests.get(url, headers={"User-Agent": "breakdown-api"})
-    data = response.json()
-    if not data:
-        return None, None
-    return float(data[0]["lat"]), float(data[0]["lon"])
+    url = f"https://api.postcodes.io/postcodes/{postcode}"
+    response = requests.get(url).json()
 
-# -----------------------------
-# HAVERSINE DISTANCE
-# -----------------------------
+    if response.get("status") != 200:
+        return None
+
+    result = response["result"]
+    return result["latitude"], result["longitude"]
+
+
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371  # km
-    dlat = radians(lat2 - lat1)
-    dlon = radians(lon2 - lon1)
-    a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
-    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    d_lat = math.radians(lat2 - lat1)
+    d_lon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(d_lat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(d_lon / 2) ** 2
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return R * c
 
-# -----------------------------
-# ENDPOINTS
-# -----------------------------
-@app.get("/garages", response_model=List[GarageOut])
-def list_garages(db=Depends(get_db)):
-    return db.query(Garage).all()
 
-@app.post("/garages", response_model=GarageOut)
-def create_garage(garage: GarageCreate, db=Depends(get_db)):
-    db_garage = Garage(**garage.dict())
+# -----------------------------
+# ROUTES
+# -----------------------------
+@app.post("/garages/", response_model=GarageOut)
+def create_garage(garage: GarageCreate, db: Session = Depends(get_db)):
+    db_garage = Garage(
+        name=garage.name,
+        postcode=garage.postcode,
+        latitude=garage.latitude,
+        longitude=garage.longitude,
+    )
     db.add(db_garage)
     db.commit()
     db.refresh(db_garage)
     return db_garage
 
-# -----------------------------
-# BULK UPLOAD WITH GEOCODING
-# -----------------------------
-@app.post("/garages/bulk_upload")
-def bulk_upload_garages(garages: List[BulkGarage], db=Depends(get_db)):
-    saved = 0
-    for g in garages:
-        lat, lon = geocode_postcode(g.postcode)
 
-        db_garage = Garage(
-            name=g.name,
-            address=g.address,
-            phone=g.phone,
-            email=None,
-            latitude=lat,
-            longitude=lon
-        )
+@app.get("/garages/", response_model=list[GarageOut])
+def list_garages(db: Session = Depends(get_db)):
+    return db.query(Garage).all()
 
-        db.add(db_garage)
-        saved += 1
 
-    db.commit()
-    return {"message": f"{saved} garages uploaded successfully"}
-
-# -----------------------------
-# FIND NEAREST GARAGES
-# -----------------------------
 @app.get("/garages/nearest")
-def nearest_garages(postcode: str, db=Depends(get_db)):
-    lat, lon = geocode_postcode(postcode)
-    if lat is None:
+def nearest_garage(postcode: str, db: Session = Depends(get_db)):
+    coords = geocode_postcode(postcode)
+    if not coords:
         raise HTTPException(status_code=400, detail="Invalid postcode")
 
+    user_lat, user_lon = coords
     garages = db.query(Garage).all()
 
-    results = []
-    for g in garages:
-        if g.latitude and g.longitude:
-            distance = haversine(lat, lon, g.latitude, g.longitude)
-            results.append({
-                "name": g.name,
-                "address": g.address,
-                "phone": g.phone,
-                "distance_km": round(distance, 2)
-            })
+    if not garages:
+        raise HTTPException(status_code=404, detail="No garages found")
 
-    results.sort(key=lambda x: x["distance_km"])
-    return results
+    nearest = None
+    nearest_distance = float("inf")
+
+    for g in garages:
+        dist = haversine(user_lat, user_lon, g.latitude, g.longitude)
+        if dist < nearest_distance:
+            nearest_distance = dist
+            nearest = g
+
+    return {
+        "garage": {
+            "id": nearest.id,
+            "name": nearest.name,
+            "postcode": nearest.postcode,
+            "latitude": nearest.latitude,
+            "longitude": nearest.longitude,
+        },
+        "distance_km": round(nearest_distance, 2),
+    }
