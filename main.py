@@ -6,11 +6,17 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 import requests
 from math import radians, sin, cos, sqrt, atan2
 
+# -----------------------------
+# DATABASE CONFIG
+# -----------------------------
 DATABASE_URL = "postgresql://postgres:breakdown2026@localhost:5432/breakdown_api"
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+# ⭐ CREATE TABLES ON STARTUP ⭐
+Base.metadata.create_all(bind=engine)
 
 # -----------------------------
 # DATABASE MODEL
@@ -55,7 +61,7 @@ class BulkGarage(BaseModel):
 app = FastAPI()
 
 # -----------------------------
-# DATABASE SESSION
+# DB SESSION
 # -----------------------------
 def get_db():
     db = SessionLocal()
@@ -148,4 +154,4 @@ def nearest_garages(postcode: str, db=Depends(get_db)):
             })
 
     results.sort(key=lambda x: x["distance_km"])
-    return 
+    return results
