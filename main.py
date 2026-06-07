@@ -57,3 +57,21 @@ def create_garage(garage: GarageCreate, db=Depends(get_db)):
     db.commit()
     db.refresh(db_garage)
     return db_garage
+    from pydantic import BaseModel
+from typing import List
+
+# Garage model
+class Garage(BaseModel):
+    name: str
+    address: str
+    postcode: str
+    phone: str | None = None
+    notes: str | None = None
+
+# Temporary storage (later replaced with database)
+garages_db = []
+
+@app.post("/garages/bulk_upload")
+def bulk_upload_garages(garages: List[Garage]):
+    garages_db.extend(garages)
+    return {"message": f"{len(garages)} garages uploaded successfully"}
