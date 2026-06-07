@@ -29,6 +29,8 @@ class Garage(Base):
     postcode = Column(String, index=True)
     latitude = Column(Float)
     longitude = Column(Float)
+    phone = Column(String, nullable=True)
+    email = Column(String, nullable=True)
 
 
 Base.metadata.create_all(bind=engine)
@@ -42,6 +44,8 @@ class GarageCreate(BaseModel):
     postcode: str
     latitude: float
     longitude: float
+    phone: str | None = None
+    email: str | None = None
 
 
 class GarageOut(BaseModel):
@@ -50,6 +54,8 @@ class GarageOut(BaseModel):
     postcode: str
     latitude: float
     longitude: float
+    phone: str | None = None
+    email: str | None = None
 
     class Config:
         orm_mode = True
@@ -89,7 +95,7 @@ def geocode_postcode(postcode: str):
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371  # km
     d_lat = math.radians(lat2 - lat1)
-    d_lon = math.radians(lon2 - lon1)
+    d_lon = math.radians(lat2 - lon1)
     a = (
         math.sin(d_lat / 2) ** 2
         + math.cos(math.radians(lat1))
@@ -110,6 +116,8 @@ def create_garage(garage: GarageCreate, db: Session = Depends(get_db)):
         postcode=garage.postcode,
         latitude=garage.latitude,
         longitude=garage.longitude,
+        phone=garage.phone,
+        email=garage.email,
     )
     db.add(db_garage)
     db.commit()
@@ -123,7 +131,7 @@ def list_garages(db: Session = Depends(get_db)):
 
 
 @app.get("/garages/nearest")
-def nearest_garage(postcode: str, db: Session = Depends(get_db)):
+def nearest_garages(postcode: str, db: Session = Depends(get_db)):
     coords = geocode_postcode(postcode)
     if not coords:
         raise HTTPException(status_code=400, detail="Invalid postcode")
@@ -134,22 +142,23 @@ def nearest_garage(postcode: str, db: Session = Depends(get_db)):
     if not garages:
         raise HTTPException(status_code=404, detail="No garages found")
 
-    nearest = None
-    nearest_distance = float("inf")
+    results = []
 
     for g in garages:
         dist = haversine(user_lat, user_lon, g.latitude, g.longitude)
-        if dist < nearest_distance:
-            nearest_distance = dist
-            nearest = g
+        results.append({
+            "id": g.id,
+            "name": g.name,
+            "postcode": g.postcode,
+            "latitude": g.latitude,
+            "longitude": g.longitude,
+            "phone": g.phone,
+            "email": g.email,
+            "distance_km": round(dist, 2)
+        })
 
-    return {
-        "garage": {
-            "id": nearest.id,
-            "name": nearest.name,
-            "postcode": nearest.postcode,
-            "latitude": nearest.latitude,
-            "longitude": nearest.longitude,
-        },
-        "distance_km": round(nearest_distance, 2),
-    }
+    # Sort by distance
+    results.sort(key=lambda x: x["distance_km"])
+
+    # Return ALL garages sorted by distance
+    return results
