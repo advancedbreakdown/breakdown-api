@@ -7,13 +7,11 @@ import requests
 import math
 
 # -----------------------------
-# DATABASE (SQLite)
+# DATABASE (PostgreSQL)
 # -----------------------------
-DATABASE_URL = "sqlite:///./breakdown.db"
+DATABASE_URL = "postgresql://breakdown_new_user:yinDOUdsP4QvmLfQlfhxoNuuhkm90zHD@dpg-d8neunjeo5us73esa4b0-a/breakdown_new"
 
-engine = create_engine(
-    DATABASE_URL, connect_args={"check_same_thread": False}
-)
+engine = create_engine(DATABASE_URL)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -60,6 +58,11 @@ class GarageOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Bulk upload schema
+class BulkGarageCreate(BaseModel):
+    garages: list[GarageCreate]
 
 
 # -----------------------------
@@ -109,7 +112,7 @@ def geocode_postcode(postcode: str):
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371
     d_lat = math.radians(lat2 - lat1)
-    d_lon = math.radians(lon2 - lon1)
+    d_lon = math.radians(lat2 - lon1)
     a = (
         math.sin(d_lat / 2) ** 2
         + math.cos(math.radians(lat1))
@@ -123,6 +126,8 @@ def haversine(lat1, lon1, lat2, lon2):
 # -----------------------------
 # ROUTES
 # -----------------------------
+
+# Single garage upload
 @app.post("/garages/", response_model=GarageOut)
 def create_garage(garage: GarageCreate, db: Session = Depends(get_db)):
     db_garage = Garage(
@@ -139,11 +144,64 @@ def create_garage(garage: GarageCreate, db: Session = Depends(get_db)):
     return db_garage
 
 
+# List all garages
 @app.get("/garages/", response_model=list[GarageOut])
 def list_garages(db: Session = Depends(get_db)):
     return db.query(Garage).all()
 
 
+# Bulk upload garages
+@app.post("/garages/bulk")
+def bulk_create_garages(data: BulkGarageCreate, db: Session = Depends(get_db)):
+    created = []
+    for g in data.garages:
+        garage = Garage(
+            name=g.name,
+            postcode=g.postcode,
+            latitude=g.latitude,
+            longitude=g.longitude,
+            phone=g.phone,
+            email=g.email,
+        )
+        db.add(garage)
+        created.append(garage)
+
+    db.commit()
+    return {"added": len(created)}
+
+
+# Delete a garage
+@app.delete("/garages/{garage_id}")
+def delete_garage(garage_id: int, db: Session = Depends(get_db)):
+    garage = db.query(Garage).filter(Garage.id == garage_id).first()
+    if not garage:
+        raise HTTPException(status_code=404, detail="Garage not found")
+
+    db.delete(garage)
+    db.commit()
+    return {"message": "Garage deleted"}
+
+
+# Update a garage
+@app.put("/garages/{garage_id}", response_model=GarageOut)
+def update_garage(garage_id: int, data: GarageCreate, db: Session = Depends(get_db)):
+    garage = db.query(Garage).filter(Garage.id == garage_id).first()
+    if not garage:
+        raise HTTPException(status_code=404, detail="Garage not found")
+
+    garage.name = data.name
+    garage.postcode = data.postcode
+    garage.latitude = data.latitude
+    garage.longitude = data.longitude
+    garage.phone = data.phone
+    garage.email = data.email
+
+    db.commit()
+    db.refresh(garage)
+    return garage
+
+
+# Nearest garages
 @app.get("/garages/nearest")
 def nearest_garages(postcode: str, db: Session = Depends(get_db)):
     coords = geocode_postcode(postcode)
@@ -173,3 +231,4 @@ def nearest_garages(postcode: str, db: Session = Depends(get_db)):
 
     results.sort(key=lambda x: x["distance_km"])
     return results
+
