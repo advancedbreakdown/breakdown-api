@@ -82,6 +82,9 @@ def get_db():
 # HELPERS
 # -----------------------------
 def geocode_postcode(postcode: str):
+    # FIXED: Clean postcode before calling API
+    postcode = postcode.replace(" ", "").upper()
+
     url = f"https://api.postcodes.io/postcodes/{postcode}"
     response = requests.get(url).json()
 
@@ -95,7 +98,7 @@ def geocode_postcode(postcode: str):
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371  # km
     d_lat = math.radians(lat2 - lat1)
-    d_lon = math.radians(lat2 - lon1)
+    d_lon = math.radians(lon2 - lon1)
     a = (
         math.sin(d_lat / 2) ** 2
         + math.cos(math.radians(lat1))
@@ -157,8 +160,6 @@ def nearest_garages(postcode: str, db: Session = Depends(get_db)):
             "distance_km": round(dist, 2)
         })
 
-    # Sort by distance
     results.sort(key=lambda x: x["distance_km"])
-
-    # Return ALL garages sorted by distance
     return results
+
