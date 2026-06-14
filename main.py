@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import Column, Integer, String, Float, create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
@@ -58,13 +59,24 @@ class GarageOut(BaseModel):
     email: str | None = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # -----------------------------
 # FASTAPI APP
 # -----------------------------
 app = FastAPI()
+
+# -----------------------------
+# CORS FIX (REQUIRED FOR GITHUB PAGES)
+# -----------------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://advancedbreakdown.github.io"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # -----------------------------
@@ -82,7 +94,6 @@ def get_db():
 # HELPERS
 # -----------------------------
 def geocode_postcode(postcode: str):
-    # FIXED: Clean postcode before calling API
     postcode = postcode.replace(" ", "").upper()
 
     url = f"https://api.postcodes.io/postcodes/{postcode}"
@@ -96,7 +107,7 @@ def geocode_postcode(postcode: str):
 
 
 def haversine(lat1, lon1, lat2, lon2):
-    R = 6371  # km
+    R = 6371
     d_lat = math.radians(lat2 - lat1)
     d_lon = math.radians(lon2 - lon1)
     a = (
@@ -162,4 +173,3 @@ def nearest_garages(postcode: str, db: Session = Depends(get_db)):
 
     results.sort(key=lambda x: x["distance_km"])
     return results
-
