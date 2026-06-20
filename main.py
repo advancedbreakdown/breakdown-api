@@ -60,7 +60,6 @@ class GarageOut(BaseModel):
         from_attributes = True
 
 
-# Bulk upload schema
 class BulkGarageCreate(BaseModel):
     garages: list[GarageCreate]
 
@@ -71,11 +70,11 @@ class BulkGarageCreate(BaseModel):
 app = FastAPI()
 
 # -----------------------------
-# CORS FIX (REQUIRED FOR GITHUB PAGES)
+# CORS (REQUIRED FOR GITHUB PAGES)
 # -----------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://advancedbreakdown.github.io"],
+    allow_origins=["*"],      # allow GitHub Pages and any future domains
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -112,7 +111,7 @@ def geocode_postcode(postcode: str):
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371
     d_lat = math.radians(lat2 - lat1)
-    d_lon = math.radians(lat2 - lon1)
+    d_lon = math.radians(lon2 - lon1)
     a = (
         math.sin(d_lat / 2) ** 2
         + math.cos(math.radians(lat1))
@@ -127,7 +126,6 @@ def haversine(lat1, lon1, lat2, lon2):
 # ROUTES
 # -----------------------------
 
-# Single garage upload
 @app.post("/garages/", response_model=GarageOut)
 def create_garage(garage: GarageCreate, db: Session = Depends(get_db)):
     db_garage = Garage(
@@ -144,13 +142,11 @@ def create_garage(garage: GarageCreate, db: Session = Depends(get_db)):
     return db_garage
 
 
-# List all garages
 @app.get("/garages/", response_model=list[GarageOut])
 def list_garages(db: Session = Depends(get_db)):
     return db.query(Garage).all()
 
 
-# Bulk upload garages
 @app.post("/garages/bulk")
 def bulk_create_garages(data: BulkGarageCreate, db: Session = Depends(get_db)):
     created = []
@@ -170,7 +166,6 @@ def bulk_create_garages(data: BulkGarageCreate, db: Session = Depends(get_db)):
     return {"added": len(created)}
 
 
-# Delete a garage
 @app.delete("/garages/{garage_id}")
 def delete_garage(garage_id: int, db: Session = Depends(get_db)):
     garage = db.query(Garage).filter(Garage.id == garage_id).first()
@@ -182,7 +177,6 @@ def delete_garage(garage_id: int, db: Session = Depends(get_db)):
     return {"message": "Garage deleted"}
 
 
-# Update a garage
 @app.put("/garages/{garage_id}", response_model=GarageOut)
 def update_garage(garage_id: int, data: GarageCreate, db: Session = Depends(get_db)):
     garage = db.query(Garage).filter(Garage.id == garage_id).first()
@@ -228,13 +222,7 @@ def nearest_garages(postcode: str, db: Session = Depends(get_db)):
             "distance_miles": round(dist_miles, 2),
         })
 
-    # Sort by nearest first
     results.sort(key=lambda x: x["distance_km"])
 
-    # Return closest 20
     return results[:20]
 
-    results.sort(key=lambda x: x["distance_km"])
-
-    # Return only the closest 20
-    return results[:20]
