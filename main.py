@@ -210,30 +210,30 @@ def nearest_garages(postcode: str, db: Session = Depends(get_db)):
     user_lat, user_lon = coords
     garages = db.query(Garage).all()
 
-    if not garages:
-        raise HTTPException(status_code=404, detail="No garages found")
-
     results = []
 
     for g in garages:
         dist_km = haversine(user_lat, user_lon, g.latitude, g.longitude)
         dist_miles = dist_km * 0.621371
 
-        # Only include garages within 60 miles
-        if dist_miles <= 60:
-            results.append({
-                "id": g.id,
-                "name": g.name,
-                "postcode": g.postcode,
-                "latitude": g.latitude,
-                "longitude": g.longitude,
-                "phone": g.phone,
-                "email": g.email,
-                "distance_km": round(dist_km, 2),
-                "distance_miles": round(dist_miles, 2),
-            })
+        results.append({
+            "id": g.id,
+            "name": g.name,
+            "postcode": g.postcode,
+            "latitude": g.latitude,
+            "longitude": g.longitude,
+            "phone": g.phone,
+            "email": g.email,
+            "distance_km": round(dist_km, 2),
+            "distance_miles": round(dist_miles, 2),
+        })
 
     # Sort by nearest first
+    results.sort(key=lambda x: x["distance_km"])
+
+    # Return closest 20
+    return results[:20]
+
     results.sort(key=lambda x: x["distance_km"])
 
     # Return only the closest 20
