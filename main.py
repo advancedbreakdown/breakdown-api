@@ -228,7 +228,3 @@ def nearest_garages(postcode: str, db: Session = Depends(get_db)):
             "email": g.email,
             "distance_km": round(dist, 2)
         })
-
-    results.sort(key=lambda x: x["distance_km"])
-    return results
-
